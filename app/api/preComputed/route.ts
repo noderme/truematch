@@ -1,5 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import db from "../../lib/db";
+import db from "../../../lib/db";
 
 interface MatchDetails {
   myPerspective: number;
@@ -22,17 +21,18 @@ interface MatchResponse {
   matches: Match[];
 }
 
-export default function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<MatchResponse | { error: string }>,
-) {
-  const { userId } = req.query;
-
-  if (!userId) {
-    return res.status(400).json({ error: "Missing userId" });
-  }
-
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const userId = url.searchParams.get("userId");
+
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Missing userId" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const rows = db
       .prepare(
         `
@@ -71,9 +71,15 @@ export default function handler(
       },
     }));
 
-    return res.status(200).json({ matches });
+    return new Response(JSON.stringify({ matches }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("Error fetching precomputed matches:", err);
-    return res.status(500).json({ error: "Failed to fetch matches" });
+    return new Response(JSON.stringify({ error: "Failed to fetch matches" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }

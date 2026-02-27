@@ -1,16 +1,13 @@
-// pages/api/traits.ts
-import type { NextApiRequest, NextApiResponse } from "next";
-import db from "../../lib/db";
-import { execOllamaPrompt, generateEmbedding } from "../../lib/ollama";
+import db from "../../../lib/db";
+import { execOllamaPrompt, generateEmbedding } from "../../../lib/ollama";
 
 interface OllamaTraits {
   selfTraits: string[];
   desiredTraits: string[];
 }
 
-/**
- * Extract JSON object from messy LLM response
- */
+/* -------------------- HELPERS -------------------- */
+
 function extractJSON(raw: string): any {
   const firstBrace = raw.indexOf("{");
   const lastBrace = raw.lastIndexOf("}");
@@ -30,9 +27,6 @@ function safeArray(arr: any): string[] {
     .map((t) => t.toLowerCase().trim());
 }
 
-/**
- * Generate traits from story using LLM
- */
 async function generateTraitsForStory(story: string): Promise<OllamaTraits> {
   const prompt = `
 You are a dating profile analyzer.
@@ -71,10 +65,9 @@ Story:
   }
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse,
-) {
+/* ---------------- HANDLER (App Router POST) ---------------- */
+
+export async function POST() {
   try {
     const users = db
       .prepare(`SELECT id, story FROM users WHERE story IS NOT NULL`)
@@ -122,11 +115,17 @@ export default async function handler(
       processed++;
     }
 
-    res.status(200).json({
-      message: `Traits + embeddings generated for ${processed} users`,
-    });
+    return new Response(
+      JSON.stringify({
+        message: `Traits + embeddings generated for ${processed} users`,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   } catch (err) {
     console.error("❌ Error generating traits:", err);
-    res.status(500).json({ error: "Failed to generate traits" });
+    return new Response(
+      JSON.stringify({ error: "Failed to generate traits" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
   }
 }

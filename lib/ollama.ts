@@ -1,28 +1,51 @@
 // lib/ollama.ts
-export async function execOllamaPrompt(prompt: string): Promise<string> {
-  try {
-    const res = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3:latest", // Change this to your actual model (e.g., "mistral", "neural-chat")
-        prompt: prompt,
-        stream: false,
-      }),
+import { spawn } from "child_process";
+
+/**
+ * Executes an Ollama prompt using your local model.
+ * Returns the raw string output from the model.
+ */
+export function execOllamaPrompt(
+  prompt: string,
+  model = "llama3:latest",
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+
+    // Spawn Ollama without passing the prompt as a command-line arg
+    const child = spawn("ollama", ["run", model], {
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
-    if (!res.ok) {
-      throw new Error(`Ollama API error: ${res.status} ${res.statusText}`);
-    }
+    // Collect stdout
+    child.stdout.on("data", (data) => {
+      output += data.toString();
+    });
 
-    const data = await res.json();
-    return data.response;
-  } catch (error) {
-    console.error("Error calling Ollama:", error);
-    throw error;
-  }
+    // Collect stderr
+    child.stderr.on("data", (data) => {
+      console.error("Ollama stderr:", data.toString());
+    });
+
+    // Handle process exit
+    child.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`Ollama exited with code ${code}`));
+      }
+      resolve(output.trim());
+    });
+
+    child.on("error", (err) => reject(err));
+
+    // Send prompt via stdin to avoid E2BIG
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
 }
 
+/**
+ * Generates embedding using Ollama embeddings API.
+ */
 export async function generateEmbedding(text: string) {
   const response = await fetch("http://localhost:11434/api/embeddings", {
     method: "POST",

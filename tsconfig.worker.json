@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/workers",
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "module": "commonjs",
+    "target": "es2020",
+    "strict": true
+  },
+  "include": ["app/workers/**/*.ts", "lib/**/*.ts"]
+}

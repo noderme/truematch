@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createMatchQueue } from "@/lib/queues";
 
 export default function Signup() {
   const [files, setFiles] = useState<File[]>([]);
@@ -36,27 +37,43 @@ export default function Signup() {
 
   const handleSignup = async () => {
     if (files.length === 0) return alert("Please upload at least one photo");
-    setLoading(true);
-
     if (!username.trim() || !story.trim() || !cityId) {
-      alert("Please fill in all fields");
-      return;
+      return alert("Please fill in all fields");
     }
 
-    const formData = new FormData();
-    files.forEach((file) => formData.append("photos", file));
-
-    const res = await fetch("/api/detect-gender", {
-      method: "POST",
-      body: formData,
-    });
-
-    const genderData = await res.json();
-    console.log("GEENDERRRRRR", genderData);
-    setGender(genderData.gender);
     setLoading(true);
+
     try {
-      const res = await fetch("/api/signup", {
+      // 1️⃣ Convert uploaded files to base64
+      const photosBase64 = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                // Remove the data:image/...;base64, prefix
+                resolve((reader.result as string).split(",")[1]);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
+
+      // 2️⃣ Detect gender
+      const genderRes = await fetch("/api/detect-gender", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: photosBase64 }),
+      });
+
+      const genderData = await genderRes.json();
+      if (!genderRes.ok)
+        throw new Error(genderData.error || "Gender detection failed");
+      setGender(genderData.gender);
+
+      // 3️⃣ Signup
+      const signupRes = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -64,15 +81,34 @@ export default function Signup() {
           story,
           cityId,
           password,
-          gender,
+          gender: genderData.gender,
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        // router.push(`/api/precomputed?userId=${data.userId}`);
-      } else {
-        alert(data.error || "Signup failed");
-      }
+
+      const signupData = await signupRes.json();
+      if (!signupRes.ok) throw new Error(signupData.error || "Signup failed");
+
+      // ✅ Wrap userId as id for traits queue
+      const traitsJobData = {
+        ...signupData,
+        id: signupData.id,
+      };
+
+      // Add job to traits queue
+      await fetch("/api/addToQueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signupData: traitsJobData }),
+      });
+
+      console.log("Signup + traits job added:", traitsJobData);
+
+      // 5️⃣ Redirect to user match page
+      router.push(`/match/${signupData.id}`);
+      console.log("Signup flow completed successfully", { signupData });
+    } catch (err: any) {
+      console.error("Error during signup flow:", err.message);
+      alert(err.message);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import db from "../../lib/db";
+import db from "../../../lib/db";
 
 /* -------------------- HELPERS -------------------- */
 
@@ -94,13 +93,19 @@ function isAttracted(A: any, B: any): boolean {
   return false;
 }
 
-/* ---------------- HANDLER ---------------- */
+/* ---------------- HANDLER (App Router POST) ---------------- */
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { cityId } = req.query;
+export async function POST(
+  req: Request,
+  { params }: { params: { cityId?: string } },
+) {
+  const { cityId } = params;
 
   if (!cityId) {
-    return res.status(400).json({ error: "Missing cityId" });
+    return new Response(JSON.stringify({ error: "Missing cityId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   try {
@@ -109,7 +114,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       .all(cityId);
 
     if (!users.length) {
-      return res.status(200).json({ message: "No users in this city" });
+      return new Response(
+        JSON.stringify({ message: "No users in this city" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     const insertStmt = db.prepare(`
@@ -151,25 +159,18 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
           /* -------- TRAIT BASED -------- */
           const characterCompatibility = fuzzyMatchScore(A_self, B_self);
-
           const desiredCompatibility = fuzzyMatchScore(A_desired, B_desired);
-
           const myPerspective = fuzzyMatchScore(A_self, B_desired);
-
           const theirPerspective = fuzzyMatchScore(B_self, A_desired);
 
           /* -------- EMBEDDING BASED -------- */
-
           const embeddingCharacter = embeddingScore(A_self_emb, B_self_emb);
-
           const embeddingDesire = embeddingScore(A_self_emb, B_desired_emb);
-
           const embeddingCompatibility = Math.round(
             (embeddingCharacter + embeddingDesire) / 2,
           );
 
           /* -------- FINAL SCORE -------- */
-
           const totalCompatibility = Math.round(
             characterCompatibility * 0.25 +
               desiredCompatibility * 0.15 +
@@ -231,11 +232,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
     transaction();
 
-    return res.status(200).json({
-      message: "Match engine completed (embeddings enabled)",
-    });
+    return new Response(
+      JSON.stringify({
+        message: "Match engine completed (embeddings enabled)",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
   } catch (err) {
     console.error("Match engine error:", err);
-    return res.status(500).json({ error: "Failed to calculate matches" });
+    return new Response(
+      JSON.stringify({ error: "Failed to calculate matches" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
   }
 }

@@ -1,17 +1,15 @@
-import { NextApiRequest, NextApiResponse } from "next";
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse,
-) {
-  if (req.method !== "POST")
-    return res.status(405).json({ error: "Method not allowed" });
-
-  const { userStory } = req.body;
-  if (!userStory)
-    return res.status(400).json({ error: "userStory is required" });
-
+export async function POST(req: Request) {
   try {
+    const body = await req.json();
+    const { userStory } = body;
+
+    if (!userStory) {
+      return new Response(JSON.stringify({ error: "userStory is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const prompt = `
 You are an expert in human relationships.
 Analyze this person's story and experiences, and generate 8-10 short traits
@@ -45,9 +43,16 @@ User story: """${userStory}"""
     }
 
     console.log("TRAITS", traits);
-    res.status(200).json({ traits });
+
+    return new Response(JSON.stringify({ traits }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to generate traits" });
+    return new Response(
+      JSON.stringify({ error: "Failed to generate traits" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
   }
 }
