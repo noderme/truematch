@@ -17,9 +17,21 @@ export default function Signup() {
 
   // fetch cities on mount
   useEffect(() => {
-    fetch("/api/cities")
-      .then((res) => res.json())
-      .then((data) => setCities(data.cities || []));
+    const fetchCities = async () => {
+      try {
+        const res = await fetch("/api/cities");
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+
+        const data = await res.json();
+        // data is already an array, not { cities: [...] }
+        setCities(data);
+      } catch (err) {
+        console.error("Failed to fetch cities:", err);
+        setCities([]);
+      }
+    };
+
+    fetchCities();
   }, []);
 
   const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {

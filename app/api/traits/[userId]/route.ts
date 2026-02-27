@@ -1,5 +1,4 @@
-// app/api/traits/[userId]/route.ts
-import db from "../../../../lib/db";
+import { pool as db } from "../../../../lib/db";
 import { execOllamaPrompt, generateEmbedding } from "../../../../lib/ollama";
 
 interface OllamaTraits {
@@ -7,7 +6,8 @@ interface OllamaTraits {
   desiredTraits: string[];
 }
 
-// JSON extraction helper
+/* -------------------- HELPERS -------------------- */
+
 function extractJSON(raw: string): any {
   const firstBrace = raw.indexOf("{");
   const lastBrace = raw.lastIndexOf("}");
@@ -41,6 +41,7 @@ Rules:
 Story:
 """${story}"""
 `;
+
   const raw = await execOllamaPrompt(prompt);
 
   try {
@@ -55,12 +56,14 @@ Story:
   }
 }
 
-// ✅ App Router POST handler
+/* -------------------- POST HANDLER -------------------- */
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId } = await params;
+
   if (!userId) {
     return new Response(JSON.stringify({ error: "Missing userId" }), {
       status: 400,
@@ -69,8 +72,10 @@ export async function POST(
   }
 
   try {
-    const stmt = db.prepare("SELECT id, story FROM users WHERE id = ?");
-    const user = stmt.get(userId);
+    const result = await db.query("SELECT id, story FROM users WHERE id = $1", [
+      userId,
+    ]);
+    const user = result.rows[0];
 
     if (!user) {
       return new Response(JSON.stringify({ error: "User not found" }), {
@@ -93,24 +98,22 @@ export async function POST(
     const selfEmbedding = await generateEmbedding(selfTraits.join(" "));
     const desiredEmbedding = await generateEmbedding(desiredTraits.join(" "));
 
-    db.prepare(
-      `UPDATE users SET self_traits = ?, desired_traits = ?, self_embedding = ?, desired_embedding = ? WHERE id = ?`,
-    ).run(
-      JSON.stringify(selfTraits),
-      JSON.stringify(desiredTraits),
-      JSON.stringify(selfEmbedding),
-      JSON.stringify(desiredEmbedding),
-      user.id,
+    await db.query(
+      `UPDATE users SET self_traits = $1, desired_traits = $2, self_embedding = $3, desired_embedding = $4 WHERE id = $5`,
+      [
+        JSON.stringify(selfTraits),
+        JSON.stringify(desiredTraits),
+        JSON.stringify(selfEmbedding),
+        JSON.stringify(desiredEmbedding),
+        user.id,
+      ],
     );
 
     return new Response(
       JSON.stringify({
         message: `Traits + embeddings generated for user ${userId}`,
       }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
+      { status: 200, headers: { "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("❌ Error generating traits:", err);

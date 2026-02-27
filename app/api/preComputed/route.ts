@@ -1,4 +1,4 @@
-import db from "../../../lib/db";
+import { pool as db } from "../../../lib/db";
 
 interface MatchDetails {
   myPerspective: number;
@@ -33,40 +33,41 @@ export async function GET(req: Request) {
       });
     }
 
-    const rows = db
-      .prepare(
-        `
-        SELECT 
-          m.user_id,
-          m.matched_user_id,
-          m.totalCompatibility,
-          m.characterCompatibility,
-          m.desiredCompatibility,
-          m.myPerspective,
-          m.theirPerspective,
-          m.iHaveWhatTheyWant,
-          m.theyHaveWhatIWant,
-          m.common_traits,
-          u.username
-        FROM matches m
-        JOIN users u ON u.id = m.matched_user_id
-        WHERE m.user_id = ?
-        ORDER BY m.totalCompatibility DESC
+    const result = await db.query(
+      `
+      SELECT 
+        m.user_id,
+        m.matched_user_id,
+        m.totalCompatibility,
+        m.characterCompatibility,
+        m.desiredCompatibility,
+        m.myPerspective,
+        m.theirPerspective,
+        m.iHaveWhatTheyWant,
+        m.theyHaveWhatIWant,
+        m.common_traits,
+        u.username
+      FROM matches m
+      JOIN users u ON u.id = m.matched_user_id
+      WHERE m.user_id = $1
+      ORDER BY m.totalCompatibility DESC
       `,
-      )
-      .all(userId);
+      [userId],
+    );
+
+    const rows = result.rows;
 
     const matches: Match[] = rows.map((row: any) => ({
       userId: row.matched_user_id,
       username: row.username,
-      totalCompatibility: row.totalCompatibility,
-      characterCompatibility: row.characterCompatibility,
-      desiredCompatibility: row.desiredCompatibility,
+      totalCompatibility: row.totalcompatibility,
+      characterCompatibility: row.charactercompatibility,
+      desiredCompatibility: row.desiredcompatibility,
       details: {
-        myPerspective: row.myPerspective ?? 0,
-        theirPerspective: row.theirPerspective ?? 0,
-        iHaveWhatTheyWant: JSON.parse(row.iHaveWhatTheyWant || "[]"),
-        theyHaveWhatIWant: JSON.parse(row.theyHaveWhatIWant || "[]"),
+        myPerspective: row.myperspective ?? 0,
+        theirPerspective: row.theirperspective ?? 0,
+        iHaveWhatTheyWant: JSON.parse(row.ihavewhattheywant || "[]"),
+        theyHaveWhatIWant: JSON.parse(row.theyhavewhatiwant || "[]"),
         commonTraits: JSON.parse(row.common_traits || "[]"),
       },
     }));

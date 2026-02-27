@@ -1,4 +1,4 @@
-import db from "../../../lib/db";
+import { pool as db } from "../../../lib/db";
 import bcrypt from "bcrypt";
 
 export async function POST(req: Request) {
@@ -16,10 +16,11 @@ export async function POST(req: Request) {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Check unique username
-    const exists = db
-      .prepare("SELECT id FROM users WHERE username = ?")
-      .get(username);
-    if (exists) {
+    const existsRes = await db.query(
+      "SELECT id FROM users WHERE username = $1",
+      [username],
+    );
+    if (existsRes.rows.length > 0) {
       return new Response(JSON.stringify({ error: "Username exists" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
@@ -27,20 +28,18 @@ export async function POST(req: Request) {
     }
 
     // Insert user
-    const stmt = db.prepare(
-      "INSERT INTO users (username, story, city_id, email, password, gender) VALUES (?, ?, ?, ?, ?, ?)",
-    );
-    const result = stmt.run(
-      username,
-      story,
-      cityId,
-      email,
-      hashedPassword,
-      gender,
+    const insertRes = await db.query(
+      `
+      INSERT INTO users (username, story, city_id, email, password, gender)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+      `,
+      [username, story, cityId, email, hashedPassword, gender],
     );
 
-    // Respond after user is created
-    return new Response(JSON.stringify({ id: result.lastInsertRowid }), {
+    const newUserId = insertRes.rows[0].id;
+
+    return new Response(JSON.stringify({ id: newUserId }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

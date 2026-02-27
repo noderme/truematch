@@ -1,4 +1,4 @@
-import db from "../../../../lib/db";
+import { pool as db } from "../../../../lib/db";
 
 /* -------------------- HELPERS -------------------- */
 
@@ -6,9 +6,7 @@ function parseTraits(raw: string | null): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.map((t) => t.toLowerCase().trim());
-    }
+    if (Array.isArray(parsed)) return parsed.map((t) => t.toLowerCase().trim());
   } catch {}
   return [];
 }
@@ -22,35 +20,25 @@ function parseEmbedding(raw: string | null): number[] {
   return [];
 }
 
-/* ---------------- COSINE SIMILARITY ---------------- */
-
 function cosineSimilarity(a: number[], b: number[]): number {
   if (!a.length || !b.length || a.length !== b.length) return 0;
-
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-
+  let dot = 0,
+    normA = 0,
+    normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
-
   normA = Math.sqrt(normA);
   normB = Math.sqrt(normB);
-
   if (!normA || !normB) return 0;
-
   return dot / (normA * normB);
 }
 
 function embeddingScore(a: number[], b: number[]): number {
-  const score = cosineSimilarity(a, b);
-  return Math.round(Math.max(0, score) * 100);
+  return Math.round(Math.max(0, cosineSimilarity(a, b)) * 100);
 }
-
-/* ---------------- FUZZY TRAIT MATCH ---------------- */
 
 function wordSimilarity(a: string, b: string): number {
   if (a === b) return 1;
@@ -60,36 +48,25 @@ function wordSimilarity(a: string, b: string): number {
 
 function fuzzyMatchScore(listA: string[], listB: string[]): number {
   if (!listA.length || !listB.length) return 0;
-
   let total = 0;
-
   for (const a of listA) {
     let best = 0;
-    for (const b of listB) {
-      best = Math.max(best, wordSimilarity(a, b));
-    }
+    for (const b of listB) best = Math.max(best, wordSimilarity(a, b));
     total += best;
   }
-
   return Math.round((total / listA.length) * 100);
 }
 
-/* ---------------- ATTRACTION ---------------- */
-
 function isAttracted(A: any, B: any): boolean {
   if (!A.gender || !A.sexual_orientation) return false;
-
   const genderA = A.gender.toLowerCase();
   const genderB = B.gender?.toLowerCase();
   const orientation = A.sexual_orientation.toLowerCase();
-
   if (!genderB) return false;
-
   if (orientation === "straight") return genderA !== genderB;
   if (orientation === "gay" || orientation === "lesbian")
     return genderA === genderB;
   if (orientation === "bisexual") return true;
-
   return false;
 }
 
@@ -109,7 +86,9 @@ export async function POST(
   }
 
   try {
-    const users = db.prepare("SELECT * FROM users WHERE id = ?").all(id);
+    // Fetch user by id
+    const userRes = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+    const users = userRes.rows;
 
     if (!users.length) {
       return new Response(JSON.stringify({ message: "No users found" }), {
@@ -118,25 +97,12 @@ export async function POST(
       });
     }
 
-    const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO matches
-      (user_id, matched_user_id, totalCompatibility,
-       characterCompatibility, desiredCompatibility,
-       embeddingCompatibility,
-       myPerspective, theirPerspective,
-       iHaveWhatTheyWant, theyHaveWhatIWant, common_traits)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const client = await db.connect();
+    try {
+      await client.query("BEGIN");
 
-    const clearStmt = db.prepare(`
-      DELETE FROM matches
-      WHERE user_id IN (
-        SELECT id FROM users WHERE id = ?
-      )
-    `);
-
-    const transaction = db.transaction(() => {
-      clearStmt.run(id);
+      // Clear existing matches for this user
+      await client.query("DELETE FROM matches WHERE user_id = $1", [id]);
 
       for (let i = 0; i < users.length; i++) {
         for (let j = i + 1; j < users.length; j++) {
@@ -155,20 +121,17 @@ export async function POST(
           const A_desired_emb = parseEmbedding(A.desired_embedding);
           const B_desired_emb = parseEmbedding(B.desired_embedding);
 
-          /* -------- TRAIT BASED -------- */
           const characterCompatibility = fuzzyMatchScore(A_self, B_self);
           const desiredCompatibility = fuzzyMatchScore(A_desired, B_desired);
           const myPerspective = fuzzyMatchScore(A_self, B_desired);
           const theirPerspective = fuzzyMatchScore(B_self, A_desired);
 
-          /* -------- EMBEDDING BASED -------- */
           const embeddingCharacter = embeddingScore(A_self_emb, B_self_emb);
           const embeddingDesire = embeddingScore(A_self_emb, B_desired_emb);
           const embeddingCompatibility = Math.round(
             (embeddingCharacter + embeddingDesire) / 2,
           );
 
-          /* -------- FINAL SCORE -------- */
           const totalCompatibility = Math.round(
             characterCompatibility * 0.25 +
               desiredCompatibility * 0.15 +
@@ -181,29 +144,51 @@ export async function POST(
             B_self.some((b: string) => wordSimilarity(t, b) > 0.7),
           );
 
-          insertStmt.run(
-            A.id,
-            B.id,
-            totalCompatibility,
-            characterCompatibility,
-            desiredCompatibility,
-            embeddingCompatibility,
-            myPerspective,
-            theirPerspective,
-            JSON.stringify(
-              B_desired.filter((t: string) =>
-                A_self.some((a: string) => wordSimilarity(a, t) > 0.7),
-              ),
-            ),
-            JSON.stringify(
-              A_desired.filter((t: string) =>
-                B_self.some((b: string) => wordSimilarity(b, t) > 0.7),
-              ),
-            ),
-            JSON.stringify(commonTraits),
-          );
+          const insertQuery = `
+            INSERT INTO matches
+            (user_id, matched_user_id, totalCompatibility,
+             characterCompatibility, desiredCompatibility,
+             embeddingCompatibility,
+             myPerspective, theirPerspective,
+             iHaveWhatTheyWant, theyHaveWhatIWant, common_traits)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            ON CONFLICT (user_id, matched_user_id) DO UPDATE SET
+              totalCompatibility = EXCLUDED.totalCompatibility,
+              characterCompatibility = EXCLUDED.characterCompatibility,
+              desiredCompatibility = EXCLUDED.desiredCompatibility,
+              embeddingCompatibility = EXCLUDED.embeddingCompatibility,
+              myPerspective = EXCLUDED.myPerspective,
+              theirPerspective = EXCLUDED.theirPerspective,
+              iHaveWhatTheyWant = EXCLUDED.iHaveWhatTheyWant,
+              theyHaveWhatIWant = EXCLUDED.theyHaveWhatIWant,
+              common_traits = EXCLUDED.common_traits
+          `;
 
-          insertStmt.run(
+          // Insert A -> B
+          await client.query(insertQuery, [
+            A.id,
+            B.id,
+            totalCompatibility,
+            characterCompatibility,
+            desiredCompatibility,
+            embeddingCompatibility,
+            myPerspective,
+            theirPerspective,
+            JSON.stringify(
+              B_desired.filter((t: string) =>
+                A_self.some((a: string) => wordSimilarity(a, t) > 0.7),
+              ),
+            ),
+            JSON.stringify(
+              A_desired.filter((t: string) =>
+                B_self.some((b: string) => wordSimilarity(b, t) > 0.7),
+              ),
+            ),
+            JSON.stringify(commonTraits),
+          ]);
+
+          // Insert B -> A
+          await client.query(insertQuery, [
             B.id,
             A.id,
             totalCompatibility,
@@ -223,17 +208,20 @@ export async function POST(
               ),
             ),
             JSON.stringify(commonTraits),
-          );
+          ]);
         }
       }
-    });
 
-    transaction();
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
 
     return new Response(
-      JSON.stringify({
-        message: "Match engine completed (embeddings enabled)",
-      }),
+      JSON.stringify({ message: "Match engine completed for user" }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   } catch (err) {

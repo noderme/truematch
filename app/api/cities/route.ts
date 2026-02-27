@@ -1,20 +1,13 @@
-import db from "../../../lib/db";
+// app/api/cities/route.ts
+import { pool } from "../../../lib/db";
 
 export async function GET() {
   try {
-    const cities = db
-      .prepare("SELECT id, name FROM cities ORDER BY name")
-      .all();
-
-    return new Response(JSON.stringify({ cities }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    const res = await pool.query("SELECT * FROM cities");
+    console.log(res.rows);
+    return new Response(JSON.stringify(res.rows), { status: 200 });
   } catch (err) {
     console.error(err);
-    return new Response(JSON.stringify({ error: "Failed to fetch cities" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response("Internal Server Error", { status: 500 });
   }
 }

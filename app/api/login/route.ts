@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import db from "../../../lib/db";
+import { pool as db } from "../../../lib/db";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -17,9 +17,10 @@ export async function POST(req: Request) {
     }
 
     // Fetch user by username
-    const user = db
-      .prepare("SELECT * FROM users WHERE username = ?")
-      .get(username);
+    const result = await db.query("SELECT * FROM users WHERE username = $1", [
+      username,
+    ]);
+    const user = result.rows[0];
 
     if (!user) {
       return new Response(

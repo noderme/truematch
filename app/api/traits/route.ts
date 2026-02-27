@@ -1,4 +1,4 @@
-import db from "../../../lib/db";
+import { pool as db } from "../../../lib/db";
 import { execOllamaPrompt, generateEmbedding } from "../../../lib/ollama";
 
 interface OllamaTraits {
@@ -11,13 +11,9 @@ interface OllamaTraits {
 function extractJSON(raw: string): any {
   const firstBrace = raw.indexOf("{");
   const lastBrace = raw.lastIndexOf("}");
-
-  if (firstBrace === -1 || lastBrace === -1) {
+  if (firstBrace === -1 || lastBrace === -1)
     throw new Error("No JSON object found in LLM output");
-  }
-
-  const jsonString = raw.slice(firstBrace, lastBrace + 1);
-  return JSON.parse(jsonString);
+  return JSON.parse(raw.slice(firstBrace, lastBrace + 1));
 }
 
 function safeArray(arr: any): string[] {
@@ -54,7 +50,6 @@ Story:
 
   try {
     const parsed = extractJSON(raw);
-
     return {
       selfTraits: safeArray(parsed.selfTraits),
       desiredTraits: safeArray(parsed.desiredTraits),
@@ -69,10 +64,10 @@ Story:
 
 export async function POST() {
   try {
-    const users = db
-      .prepare(`SELECT id, story FROM users WHERE story IS NOT NULL`)
-      .all();
-
+    const result = await db.query(
+      `SELECT id, story FROM users WHERE story IS NOT NULL`,
+    );
+    const users = result.rows;
     let processed = 0;
 
     for (const user of users) {
@@ -84,32 +79,30 @@ export async function POST() {
         user.story,
       );
 
-      // Skip if LLM failed
       if (!selfTraits.length || !desiredTraits.length) {
         console.warn(`Skipping user ${user.id} (empty traits)`);
         continue;
       }
 
-      // Generate embeddings
       const selfEmbedding = await generateEmbedding(selfTraits.join(" "));
       const desiredEmbedding = await generateEmbedding(desiredTraits.join(" "));
 
-      // Update DB (single statement per user to avoid lock issues)
-      db.prepare(
+      await db.query(
         `
         UPDATE users
-        SET self_traits = ?,
-            desired_traits = ?,
-            self_embedding = ?,
-            desired_embedding = ?
-        WHERE id = ?
-      `,
-      ).run(
-        JSON.stringify(selfTraits),
-        JSON.stringify(desiredTraits),
-        JSON.stringify(selfEmbedding),
-        JSON.stringify(desiredEmbedding),
-        user.id,
+        SET self_traits = $1,
+            desired_traits = $2,
+            self_embedding = $3,
+            desired_embedding = $4
+        WHERE id = $5
+        `,
+        [
+          JSON.stringify(selfTraits),
+          JSON.stringify(desiredTraits),
+          JSON.stringify(selfEmbedding),
+          JSON.stringify(desiredEmbedding),
+          user.id,
+        ],
       );
 
       processed++;
