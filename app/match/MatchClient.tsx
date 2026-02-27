@@ -6,7 +6,6 @@ interface MatchDetails {
   myPerspective: number;
   theirPerspective: number;
   iHaveWhatTheyWant: string[];
-  theyHaveWhatTheyWant: string[];
   theyHaveWhatIWant: string[];
   commonTraits: string[];
 }
@@ -17,7 +16,7 @@ interface Match {
   totalCompatibility: number;
   characterCompatibility: number;
   desiredCompatibility: number;
-  details: any;
+  details: MatchDetails;
 }
 
 export default function MatchClient({ userId }: { userId: number }) {
@@ -26,7 +25,7 @@ export default function MatchClient({ userId }: { userId: number }) {
 
   useEffect(() => {
     async function fetchMatches() {
-      const res = await fetch(`/api/precomputed?userId=${userId}`);
+      const res = await fetch(`/api/preComputed?userId=${userId}`);
       const data = await res.json();
       setMatches(data.matches || []);
       setLoading(false);
@@ -50,13 +49,14 @@ export default function MatchClient({ userId }: { userId: number }) {
     <div className="min-h-screen bg-black text-white px-6 py-12">
       <div className="max-w-4xl mx-auto space-y-12">
         {matches.map((m) => {
+          const details = m.details || {};
           const {
             myPerspective = 0,
             theirPerspective = 0,
             iHaveWhatTheyWant = [],
             theyHaveWhatIWant = [],
             commonTraits = [],
-          } = m.details || {};
+          } = details;
 
           return (
             <div

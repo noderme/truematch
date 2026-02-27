@@ -17,10 +17,6 @@ interface Match {
   details: MatchDetails;
 }
 
-interface MatchResponse {
-  matches: Match[];
-}
-
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -38,31 +34,29 @@ export async function GET(req: Request) {
       SELECT 
         m.user_id,
         m.matched_user_id,
-        m.totalCompatibility,
-        m.characterCompatibility,
-        m.desiredCompatibility,
-        m.myPerspective,
-        m.theirPerspective,
-        m.iHaveWhatTheyWant,
-        m.theyHaveWhatIWant,
+        m.totalcompatibility,
+        m.charactercompatibility,
+        m.desiredcompatibility,
+        m.myperspective,
+        m.theirperspective,
+        m.ihavewhattheywant,
+        m.theyhavewhatiwant,
         m.common_traits,
         u.username
       FROM matches m
       JOIN users u ON u.id = m.matched_user_id
       WHERE m.user_id = $1
-      ORDER BY m.totalCompatibility DESC
+      ORDER BY m.totalcompatibility DESC
       `,
       [userId],
     );
 
-    const rows = result.rows;
-
-    const matches: Match[] = rows.map((row: any) => ({
+    const matches: Match[] = result.rows.map((row: any) => ({
       userId: row.matched_user_id,
       username: row.username,
-      totalCompatibility: row.totalcompatibility,
-      characterCompatibility: row.charactercompatibility,
-      desiredCompatibility: row.desiredcompatibility,
+      totalCompatibility: row.totalcompatibility ?? 0,
+      characterCompatibility: row.charactercompatibility ?? 0,
+      desiredCompatibility: row.desiredcompatibility ?? 0,
       details: {
         myPerspective: row.myperspective ?? 0,
         theirPerspective: row.theirperspective ?? 0,
