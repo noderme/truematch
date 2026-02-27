@@ -73,30 +73,31 @@ function isAttracted(A: any, B: any): boolean {
 
 /* ---------------- HANDLER (App Router POST) ---------------- */
 
-export async function POST(
-  req: Request,
-  { params }: { params: { cityId?: string } },
-) {
-  const { cityId } = params;
-
-  if (!cityId) {
-    return new Response(JSON.stringify({ error: "Missing cityId" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
+export async function POST(req: Request) {
   try {
+    const url = new URL(req.url);
+    const cityId = url.searchParams.get("cityId");
+
+    if (!cityId) {
+      return new Response(JSON.stringify({ error: "Missing cityId" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     // Fetch all users in the city
-    const usersRes = await db.query("SELECT * FROM users WHERE city_id = $1", [
-      cityId,
-    ]);
-    const users = usersRes.rows;
+    const { rows: users } = await db.query(
+      "SELECT * FROM users WHERE city_id = $1",
+      [cityId],
+    );
 
     if (!users.length) {
       return new Response(
         JSON.stringify({ message: "No users in this city" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
       );
     }
 
@@ -107,10 +108,7 @@ export async function POST(
 
       // Clear old matches for this city
       await client.query(
-        `
-        DELETE FROM matches
-        WHERE user_id IN (SELECT id FROM users WHERE city_id = $1)
-      `,
+        `DELETE FROM matches WHERE user_id IN (SELECT id FROM users WHERE city_id = $1)`,
         [cityId],
       );
 
@@ -231,17 +229,18 @@ export async function POST(
       client.release();
     }
 
-    return new Response(
-      JSON.stringify({
-        message: "Match engine completed (embeddings enabled)",
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ message: "Match engine completed" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("Match engine error:", err);
     return new Response(
       JSON.stringify({ error: "Failed to calculate matches" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
     );
   }
 }
