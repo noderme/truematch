@@ -13,6 +13,8 @@ export default function Signup() {
   const [cityId, setCityId] = useState("");
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+
   const router = useRouter();
 
   // fetch cities on mount
@@ -98,6 +100,34 @@ export default function Signup() {
       });
 
       const signupData = await signupRes.json();
+
+      // 4️⃣ Upload photos to R2
+      const formData = new FormData();
+      formData.append("userId", signupData.id.toString());
+
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const uploadRes = await fetch("/api/upload-photos", {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || "Photo upload failed");
+      }
+
+      // 5️⃣ Save photo URLs in DB
+      await fetch("/api/save-photos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: signupData.id,
+          photos: uploadData.urls,
+        }),
+      });
       if (!signupRes.ok) throw new Error(signupData.error || "Signup failed");
 
       // ✅ Wrap userId as id for traits queue
@@ -238,10 +268,10 @@ export default function Signup() {
             <button
               type="button"
               onClick={handleLoginRedirect}
-              disabled={loading}
+              disabled={loginLoading}
               className="flex-1 w-1/2 bg-green-600 text-white p-2 rounded text-center"
             >
-              {loading ? "Signing up..." : "Login"}
+              {loginLoading ? "Loggin in..." : "Login"}
             </button>
           </div>
         </div>

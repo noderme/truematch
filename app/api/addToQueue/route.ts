@@ -12,7 +12,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ✅ Use RabbitMQ instead of BullMQ
   const traitsQueue = await createTraitsQueue();
   await traitsQueue.send({ id: signupData.id }); // send replaces .add()
 

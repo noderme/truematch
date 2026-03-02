@@ -15,6 +15,7 @@ interface Match {
   characterCompatibility: number;
   desiredCompatibility: number;
   details: MatchDetails;
+  photos: string[]; // NEW: array of photo URLs
 }
 
 export async function GET(req: Request) {
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
       });
     }
 
+    // Fetch matches
     const result = await db.query(
       `
       SELECT 
@@ -51,20 +53,32 @@ export async function GET(req: Request) {
       [userId],
     );
 
-    const matches: Match[] = result.rows.map((row: any) => ({
-      userId: row.matched_user_id,
-      username: row.username,
-      totalCompatibility: row.totalcompatibility ?? 0,
-      characterCompatibility: row.charactercompatibility ?? 0,
-      desiredCompatibility: row.desiredcompatibility ?? 0,
-      details: {
-        myPerspective: row.myperspective ?? 0,
-        theirPerspective: row.theirperspective ?? 0,
-        iHaveWhatTheyWant: JSON.parse(row.ihavewhattheywant || "[]"),
-        theyHaveWhatIWant: JSON.parse(row.theyhavewhatiwant || "[]"),
-        commonTraits: JSON.parse(row.common_traits || "[]"),
-      },
-    }));
+    const matches: Match[] = [];
+
+    for (const row of result.rows) {
+      // Fetch photos for this matched user
+      const photoRes = await db.query(
+        `SELECT url FROM photos WHERE user_id = $1 ORDER BY position ASC`,
+        [row.matched_user_id],
+      );
+      const photos: string[] = photoRes.rows.map((p: any) => p.url);
+
+      matches.push({
+        userId: row.matched_user_id,
+        username: row.username,
+        totalCompatibility: row.totalcompatibility ?? 0,
+        characterCompatibility: row.charactercompatibility ?? 0,
+        desiredCompatibility: row.desiredcompatibility ?? 0,
+        details: {
+          myPerspective: row.myperspective ?? 0,
+          theirPerspective: row.theirperspective ?? 0,
+          iHaveWhatTheyWant: JSON.parse(row.ihavewhattheywant || "[]"),
+          theyHaveWhatIWant: JSON.parse(row.theyhavewhatiwant || "[]"),
+          commonTraits: JSON.parse(row.common_traits || "[]"),
+        },
+        photos, // add photos here
+      });
+    }
 
     return new Response(JSON.stringify({ matches }), {
       status: 200,
