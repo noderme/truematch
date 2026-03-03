@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // ⚠️ server only
-);
+import { supabaseClient } from "../../../lib/supabaseClient";
 
 export async function POST(req: Request) {
   try {
@@ -29,7 +24,7 @@ export async function POST(req: Request) {
       const fileExt = file.name.split(".").pop();
       const fileName = `${userId}/${crypto.randomUUID()}.${fileExt}`;
 
-      const { error } = await supabase.storage
+      const { error } = await supabaseClient.storage
         .from("photos") // your bucket name
         .upload(fileName, buffer, {
           contentType: file.type,
@@ -42,7 +37,9 @@ export async function POST(req: Request) {
       }
 
       // Get public URL
-      const { data } = supabase.storage.from("photos").getPublicUrl(fileName);
+      const { data } = supabaseClient.storage
+        .from("photos")
+        .getPublicUrl(fileName);
 
       uploadedUrls.push(data.publicUrl);
     }

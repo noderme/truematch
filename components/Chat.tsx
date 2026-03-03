@@ -44,6 +44,7 @@ export default function Chat({ currentUser, matchedUser }: ChatProps) {
   }, [currentUser, matchedUser]);
 
   // Realtime subscription
+  // Realtime subscription
   useEffect(() => {
     const channel = supabaseClient
       .channel("messages")
@@ -51,7 +52,7 @@ export default function Chat({ currentUser, matchedUser }: ChatProps) {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
         (payload) => {
-          const msg: Message = payload.new;
+          const msg: Message = payload.new as Message;
 
           // Only add messages relevant to this chat
           if (

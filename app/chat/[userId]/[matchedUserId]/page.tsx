@@ -1,16 +1,12 @@
 // app/chat/[userId]/[matchedUserId]/page.tsx
-"use client"; // Chat is a client component
-
 import Chat from "@/components/Chat";
 
 interface Props {
-  params:
-    | { userId: string; matchedUserId: string }
-    | Promise<{ userId: string; matchedUserId: string }>;
+  params: Promise<{ userId: string; matchedUserId: string }>;
 }
 
 export default async function Page({ params }: Props) {
-  const { userId, matchedUserId } = await params; // unwrap the promise
+  const { userId, matchedUserId } = await params;
   const currentUserId = Number(userId);
   const matchedUserIdNum = Number(matchedUserId);
 
