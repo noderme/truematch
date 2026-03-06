@@ -119,8 +119,8 @@ export default function Chat({ currentUser, matchedUser }: ChatProps) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-black p-4">
-      <div className="w-full max-w-md flex flex-col bg-zinc-900 rounded-xl shadow-lg overflow-hidden">
+    <div className="flex items-center justify-center min-h-screen p-4">
+      <div className="w-full max-w-md flex flex-col rounded-xl shadow-lg overflow-hidden">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {messages.map((msg) => (

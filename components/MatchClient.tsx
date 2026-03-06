@@ -164,7 +164,7 @@ export default function MatchClient({ userId }: { userId: number }) {
   const currentPhoto = photos[photoIndex];
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <div
         className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden bg-zinc-900 transition-transform duration-300"
         style={{

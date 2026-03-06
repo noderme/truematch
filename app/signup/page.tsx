@@ -8,6 +8,7 @@ export default function Signup() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [gender, setGender] = useState("");
   const [story, setStory] = useState("");
   const [cityId, setCityId] = useState("");
   const [cities, setCities] = useState<{ id: number; name: string }[]>([]);
@@ -46,6 +47,111 @@ export default function Signup() {
   const handleLoginRedirect = () => router.push("/login");
   const handleSignup = async () => {
     /* your signup logic */
+
+    if (files.length === 0) return alert("Please upload at least one photo");
+    if (!username.trim() || !story.trim() || !cityId) {
+      return alert("Please fill in all fields");
+    }
+
+    setLoading(true);
+
+    try {
+      // 1️⃣ Convert uploaded files to base64
+      const photosBase64 = await Promise.all(
+        files.map(
+          (file) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                // Remove the data:image/...;base64, prefix
+                resolve((reader.result as string).split(",")[1]);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            }),
+        ),
+      );
+
+      // 2️⃣ Detect gender
+      const genderRes = await fetch("/api/detect-gender", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: photosBase64 }),
+      });
+
+      const genderData = await genderRes.json();
+      if (!genderRes.ok)
+        throw new Error(genderData.error || "Gender detection failed");
+      setGender(genderData.gender);
+
+      // 3️⃣ Signup
+      const signupRes = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          story,
+          cityId,
+          password,
+          gender: genderData.gender,
+        }),
+      });
+
+      const signupData = await signupRes.json();
+
+      // 4️⃣ Upload photos to R2
+      const formData = new FormData();
+      formData.append("userId", signupData.id.toString());
+
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const uploadRes = await fetch("/api/upload-photos", {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error || "Photo upload failed");
+      }
+
+      // 5️⃣ Save photo URLs in DB
+      await fetch("/api/save-photos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: signupData.id,
+          photos: uploadData.urls,
+        }),
+      });
+      if (!signupRes.ok) throw new Error(signupData.error || "Signup failed");
+
+      // ✅ Wrap userId as id for traits queue
+      const traitsJobData = {
+        ...signupData,
+        id: signupData.id,
+      };
+
+      // Add job to traits queue
+      await fetch("/api/addToQueue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signupData: traitsJobData }),
+      });
+
+      console.log("Signup + traits job added:", traitsJobData);
+
+      // 5️⃣ Redirect to user match page
+      router.push(`/match/${signupData.id}`);
+      console.log("Signup flow completed successfully", { signupData });
+    } catch (err: any) {
+      console.error("Error during signup flow:", err.message);
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const features = [
