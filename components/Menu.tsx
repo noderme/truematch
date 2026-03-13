@@ -1,8 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
-// Simple JWT parser to get payload
 function parseJwt(token: string) {
   try {
     return JSON.parse(atob(token.split(".")[1]));
@@ -11,41 +10,50 @@ function parseJwt(token: string) {
   }
 }
 
+const PUBLIC_ROUTES = ["/", "/login", "/signup"];
+
 export default function Menu() {
-  const router = useRouter();
+  const pathname = usePathname();
 
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const decoded: any = token ? parseJwt(token) : null;
-  const userId = decoded?.userId;
+  if (!pathname || PUBLIC_ROUTES.includes(pathname)) return null;
 
-  if (!userId) {
-    if (typeof window !== "undefined") router.push("/login");
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  if (!token) return null;
+
+  const decoded: any = parseJwt(token);
+  // Clear and hide nav if token is expired
+  if (!decoded || (decoded.exp && decoded.exp * 1000 < Date.now())) {
+    if (typeof window !== "undefined") localStorage.removeItem("token");
     return null;
   }
 
+  const userId = decoded?.userId;
+  if (!userId) return null;
+
   const menuItems = [
-    { name: "Profile", path: `/profile/${userId}` },
     { name: "Matches", path: `/match/${userId}` },
     { name: "Chats", path: `/chat/${userId}` },
+    { name: "Profile", path: `/profile/${userId}` },
   ];
 
   return (
-    <nav className="bg-gradient-to-r from-pink-100 via-purple-50 to-pink-50 shadow-md py-2 flex justify-center gap-4 font-sans text-sm">
-      {menuItems.map((item) => (
-        <Link
-          key={item.path}
-          href={item.path}
-          className={`px-3 py-1 rounded-md font-medium transition-colors duration-200
-            ${
-              router.pathname === item.path
-                ? "bg-pink-500 text-white shadow-lg"
-                : "text-gray-700 hover:bg-pink-200"
+    <nav className="flex items-center gap-0.5 px-1 py-1">
+      {menuItems.map((item) => {
+        const isActive = pathname?.startsWith(item.path);
+        return (
+          <Link
+            key={item.path}
+            href={item.path}
+            className={`px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+              isActive
+                ? "bg-gradient-to-r from-rose-500/15 via-fuchsia-500/15 to-sky-500/15 text-white border border-fuchsia-500/25"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
             }`}
-        >
-          {item.name}
-        </Link>
-      ))}
+          >
+            {item.name}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

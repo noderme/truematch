@@ -1,52 +1,31 @@
-import { execOllamaPrompt } from "@/lib/ollama";
+import { generateWithClaudeVision } from "@/lib/claude";
 
-// -------------------- GENDER NORMALIZER --------------------
 function normalizeGender(raw: string): "male" | "female" | "unknown" {
   const cleaned = raw.toLowerCase().trim();
-  if (cleaned.includes("male")) return "male";
   if (cleaned.includes("female")) return "female";
+  if (cleaned.includes("male")) return "male";
   return "unknown";
 }
 
-// -------------------- HANDLER --------------------
 export async function POST(req: Request) {
   try {
-    // Parse JSON body (no bodyParser config needed)
     const body = await req.json();
 
-    // Expect `body.photos` as base64 strings
-    if (
-      !body.photos ||
-      !Array.isArray(body.photos) ||
-      body.photos.length === 0
-    ) {
-      return new Response(JSON.stringify({ error: "No photos uploaded" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    if (!body.photos || !Array.isArray(body.photos) || body.photos.length === 0) {
+      return Response.json({ error: "No photos uploaded" }, { status: 400 });
     }
 
     const genderVotes: ("male" | "female" | "unknown")[] = [];
 
     for (const base64 of body.photos) {
       try {
-        const prompt = `
-You are a gender classifier.
-
-Reply ONLY with one word:
-Male
-Female
-Unknown
-
-Image base64:
-${base64}
-`;
-
-        const raw = await execOllamaPrompt(prompt);
-        const gender = normalizeGender(raw);
-        genderVotes.push(gender);
+        const raw = await generateWithClaudeVision(
+          "Look at this photo and reply with ONLY one word: Male, Female, or Unknown.",
+          [base64],
+        );
+        genderVotes.push(normalizeGender(raw));
       } catch (err) {
-        console.error("Error detecting gender:", err);
+        console.error("Error detecting gender for photo:", err);
         genderVotes.push("unknown");
       }
     }
@@ -59,15 +38,9 @@ ${base64}
     if (maleCount > femaleCount) finalGender = "male";
     else if (femaleCount > maleCount) finalGender = "female";
 
-    return new Response(
-      JSON.stringify({ gender: finalGender, rawVotes: genderVotes }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return Response.json({ gender: finalGender, rawVotes: genderVotes });
   } catch (err) {
     console.error("Detect gender API error:", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

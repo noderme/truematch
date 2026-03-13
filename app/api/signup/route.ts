@@ -1,5 +1,9 @@
 import { pool as db } from "../../../lib/db";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+
+const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 export async function POST(req: Request) {
   try {
@@ -7,10 +11,7 @@ export async function POST(req: Request) {
     const { username, story, cityId, email, password, gender } = body;
 
     if (!username || !story || !cityId) {
-      return new Response(JSON.stringify({ error: "Missing fields" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ error: "Missing fields" }, { status: 400 });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -21,33 +22,35 @@ export async function POST(req: Request) {
       [username],
     );
     if (existsRes.rows.length > 0) {
-      return new Response(JSON.stringify({ error: "Username exists" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+      return Response.json({ error: "Username exists" }, { status: 400 });
     }
 
     // Insert user
     const insertRes = await db.query(
-      `
-      INSERT INTO users (username, story, city_id, email, password, gender)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id
-      `,
+      `INSERT INTO users (username, story, city_id, email, password, gender)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
       [username, story, cityId, email, hashedPassword, gender],
     );
 
     const newUserId = insertRes.rows[0].id;
 
-    return new Response(JSON.stringify({ id: newUserId }), {
+    // Auto-login: issue JWT so user lands on /match without needing to log in again
+    const token = jwt.sign(
+      { userId: newUserId, username },
+      JWT_SECRET,
+      { expiresIn: "7d" },
+    );
+
+    return new Response(JSON.stringify({ id: newUserId, token }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": `token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE}`,
+      },
     });
   } catch (err) {
     console.error("Signup error:", err);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

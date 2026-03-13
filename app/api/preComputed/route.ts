@@ -47,7 +47,7 @@ export async function GET(req: Request) {
         u.username
       FROM matches m
       JOIN users u ON u.id = m.matched_user_id
-      WHERE m.user_id = $1
+      WHERE m.user_id = $1 AND m.totalcompatibility >= 45
       ORDER BY m.totalcompatibility DESC
       `,
       [userId],

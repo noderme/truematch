@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@aws-sdk/client-s3": "^3.1000.0",
     "@bull-board/api": "^6.20.3",
     "@bull-board/express": "^6.20.3",

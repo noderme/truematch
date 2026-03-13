@@ -26,6 +26,7 @@ export default function MatchClient({ userId }: { userId: number }) {
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [showWhyMatched, setShowWhyMatched] = useState(false);
 
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -34,29 +35,46 @@ export default function MatchClient({ userId }: { userId: number }) {
   const [showAnimation, setShowAnimation] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
 
+  // Track removed match IDs so they don't reappear on next poll cycle
+  const removedIds = useRef<Set<number>>(new Set());
+
   const router = useRouter();
 
   // ---------------- FETCH WITH POLLING ----------------
   useEffect(() => {
     if (!userId) return;
     let interval: NodeJS.Timeout;
+    let done = false;
 
     async function fetchMatches() {
       try {
         const statusRes = await fetch(`/api/profile-status?userId=${userId}`);
         const statusData = await statusRes.json();
 
-        if (
-          statusData.status === "ready" ||
-          statusData.status === "processed"
-        ) {
+        if (statusData.status === "ready" || statusData.status === "processed") {
+          done = true;
           clearInterval(interval);
 
-          const res = await fetch(`/api/preComputed?userId=${userId}`);
-          const data = await res.json();
-          setMatches(data.matches || []);
+          const [matchRes, chatsRes] = await Promise.all([
+            fetch(`/api/preComputed?userId=${userId}`),
+            fetch(`/api/chats?userId=${userId}`),
+          ]);
+
+          const matchData = await matchRes.json();
+          const chatsData = chatsRes.ok ? await chatsRes.json() : { chats: [] };
+
+          const chattedIds = new Set<number>(
+            (chatsData.chats || []).map((c: any) => Number(c.matchedUserId)),
+          );
+
+          const filtered = (matchData.matches || []).filter(
+            (m: any) => !chattedIds.has(m.userId) && !removedIds.current.has(m.userId),
+          );
+
+          setMatches(filtered);
           setLoading(false);
         } else if (statusData.status === "failed") {
+          done = true;
           clearInterval(interval);
           setLoading(false);
         }
@@ -65,28 +83,20 @@ export default function MatchClient({ userId }: { userId: number }) {
       }
     }
 
-    interval = setInterval(fetchMatches, 2000);
     fetchMatches();
-
+    interval = setInterval(() => { if (!done) fetchMatches(); }, 2000);
     return () => clearInterval(interval);
   }, [userId]);
 
-  // Reset photo index when user changes
-  useEffect(() => {
-    setPhotoIndex(0);
-  }, [currentIndex]);
+  useEffect(() => { setPhotoIndex(0); setShowWhyMatched(false); }, [currentIndex]);
 
-  // ---------------- REMOVE MATCH (STABLE) ----------------
+  // ---------------- REMOVE MATCH ----------------
   const removeMatch = async (matchId: number) => {
+    removedIds.current.add(matchId);
     setMatches((prev) => {
       const updated = prev.filter((m) => m.userId !== matchId);
-
-      if (updated.length === 0) {
-        setCurrentIndex(0);
-      } else if (currentIndex >= updated.length) {
-        setCurrentIndex(updated.length - 1);
-      }
-
+      if (updated.length === 0) setCurrentIndex(0);
+      else if (currentIndex >= updated.length) setCurrentIndex(updated.length - 1);
       return updated;
     });
 
@@ -105,7 +115,6 @@ export default function MatchClient({ userId }: { userId: number }) {
   const startChat = (matchId: number) => {
     setSelectedMatchId(matchId);
     setShowAnimation(true);
-
     setTimeout(() => {
       router.push(`/chat/${userId}/${matchId}`);
     }, 800);
@@ -128,171 +137,288 @@ export default function MatchClient({ userId }: { userId: number }) {
 
     if (dragX < -120) {
       setDragX(-1000);
-      setTimeout(() => {
-        removeMatch(matchId);
-        setDragX(0);
-      }, 250);
+      setTimeout(() => { removeMatch(matchId); setDragX(0); }, 250);
     } else if (dragX > 120) {
       setDragX(1000);
-      setTimeout(() => {
-        startChat(matchId);
-        setDragX(0);
-      }, 250);
+      setTimeout(() => { startChat(matchId); setDragX(0); }, 250);
     } else {
       setDragX(0);
     }
   };
 
-  if (loading)
+  // ---------------- LOADING STATE ----------------
+  if (loading) {
     return (
-      <p className="text-center mt-10 text-gray-400">Finding matches...</p>
+      <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center gap-6 px-4">
+        <div className="w-full max-w-sm rounded-3xl overflow-hidden border border-slate-800/60 shadow-2xl shadow-black/60">
+          <div className="shimmer h-[520px] w-full" />
+          <div className="bg-slate-900 p-5 flex flex-col gap-3">
+            <div className="flex justify-between">
+              <div className="shimmer h-6 w-32 rounded-lg" />
+              <div className="shimmer h-5 w-16 rounded-lg" />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[80, 64, 96, 72].map((w) => (
+                <div key={w} className="shimmer h-5 rounded-full" style={{ width: w }} />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="w-2 h-2 rounded-full bg-fuchsia-500/70 animate-pulse"
+                style={{ animationDelay: `${i * 0.2}s` }}
+              />
+            ))}
+          </div>
+          <p className="text-sm text-slate-500">AI is finding your matches…</p>
+        </div>
+      </div>
     );
+  }
 
-  if (!matches.length)
+  // ---------------- EMPTY STATE ----------------
+  if (!matches.length) {
     return (
-      <p className="text-center mt-10 text-gray-400">
-        No strong matches found.
-      </p>
+      <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center gap-4 px-4 text-center">
+        <div className="w-20 h-20 rounded-full bg-slate-800/60 border border-slate-700 flex items-center justify-center text-3xl">
+          ✦
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-slate-200">No matches yet</h3>
+          <p className="text-sm text-slate-500 mt-1 max-w-xs">
+            Your AI analysis might still be running, or no strong matches were found in your city yet.
+          </p>
+        </div>
+      </div>
     );
+  }
 
   const m = matches[currentIndex];
   const photos =
     m.photos && m.photos.length > 0
       ? m.photos
       : ["https://via.placeholder.com/400x600?text=No+Photo"];
-
   const currentPhoto = photos[photoIndex];
+  const compat = m.totalCompatibility;
+  const compatColor =
+    compat >= 70 ? "text-emerald-400" : compat >= 50 ? "text-amber-400" : "text-rose-400";
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center px-4 py-4 gap-4">
+
+      {/* Progress dots */}
+      <div className="flex items-center gap-1.5">
+        {matches.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => setCurrentIndex(i)}
+            className={`h-1.5 rounded-full transition-all duration-300 ${
+              i === currentIndex
+                ? "w-5 bg-fuchsia-400"
+                : "w-1.5 bg-slate-700 hover:bg-slate-500"
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* Card */}
       <div
-        className="relative w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden bg-zinc-900 transition-transform duration-300"
+        className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl shadow-black/70 border border-slate-800/40 select-none"
         style={{
-          transform: `translateX(${dragX}px) rotate(${dragX / 20}deg)`,
+          transform: `translateX(${dragX}px) rotate(${dragX / 22}deg)`,
+          transition: isDragging ? "none" : "transform 0.25s ease",
+          cursor: isDragging ? "grabbing" : "grab",
         }}
         onMouseDown={(e) => handleStart(e.clientX)}
         onMouseMove={(e) => handleMove(e.clientX)}
         onMouseUp={() => handleEnd(m.userId)}
+        onMouseLeave={() => { if (isDragging) handleEnd(m.userId); }}
         onTouchStart={(e) => handleStart(e.touches[0].clientX)}
         onTouchMove={(e) => handleMove(e.touches[0].clientX)}
         onTouchEnd={() => handleEnd(m.userId)}
       >
-        {/* IMAGE */}
+        {/* Photo */}
         <img
           src={currentPhoto}
           alt={m.username}
-          className="w-full h-[580px] object-cover"
+          className="w-full h-[520px] object-cover"
+          draggable={false}
         />
 
-        {/* PHOTO ARROWS */}
+        {/* Photo dot indicators */}
+        {photos.length > 1 && (
+          <div className="absolute top-3 left-0 right-0 flex justify-center gap-1.5 px-4 z-20">
+            {photos.map((_, i) => (
+              <div
+                key={i}
+                className={`h-1 rounded-full transition-all duration-200 ${
+                  i === photoIndex ? "bg-white w-6" : "bg-white/40 w-3"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Photo navigation tap zones */}
         {photoIndex > 0 && (
           <button
-            onClick={() => setPhotoIndex((prev) => prev - 1)}
-            className="absolute top-1/2 left-3 -translate-y-1/2 z-50
-                       w-10 h-10 flex items-center justify-center
-                       bg-black/60 text-white rounded-full"
-          >
-            ‹
-          </button>
+            onClick={(e) => { e.stopPropagation(); setPhotoIndex((p) => p - 1); }}
+            className="absolute left-0 top-0 h-full w-1/3 z-10"
+          />
         )}
-
         {photoIndex < photos.length - 1 && (
           <button
-            onClick={() => setPhotoIndex((prev) => prev + 1)}
-            className="absolute top-1/2 right-3 -translate-y-1/2 z-50
-                       w-10 h-10 flex items-center justify-center
-                       bg-black/60 text-white rounded-full"
+            onClick={(e) => { e.stopPropagation(); setPhotoIndex((p) => p + 1); }}
+            className="absolute right-0 top-0 h-full w-1/3 z-10"
+          />
+        )}
+
+        {/* Like overlay */}
+        {dragX > 50 && (
+          <div
+            className="absolute inset-0 bg-gradient-to-r from-emerald-500/35 to-transparent flex items-center pl-6 pt-12 z-20 pointer-events-none"
+            style={{ opacity: Math.min(dragX / 110, 1) }}
           >
-            ›
-          </button>
-        )}
-
-        {/* LIKE / NOPE */}
-        {dragX > 60 && (
-          <div className="absolute top-10 right-6 text-green-400 text-3xl font-bold rotate-12">
-            LIKE
-          </div>
-        )}
-        {dragX < -60 && (
-          <div className="absolute top-10 left-6 text-red-500 text-3xl font-bold -rotate-12">
-            NOPE
+            <span className="text-emerald-300 text-3xl font-extrabold tracking-widest rotate-[-12deg] border-2 border-emerald-400/70 px-3 py-1 rounded-xl drop-shadow-lg">
+              LIKE
+            </span>
           </div>
         )}
 
-        {/* OVERLAY */}
-        <div className="absolute bottom-0 w-full bg-gradient-to-t from-black via-black/70 to-transparent p-4 flex flex-col gap-2">
-          <div className="flex justify-between items-center">
+        {/* Nope overlay */}
+        {dragX < -50 && (
+          <div
+            className="absolute inset-0 bg-gradient-to-l from-rose-500/35 to-transparent flex items-center justify-end pr-6 pt-12 z-20 pointer-events-none"
+            style={{ opacity: Math.min(-dragX / 110, 1) }}
+          >
+            <span className="text-rose-300 text-3xl font-extrabold tracking-widest rotate-[12deg] border-2 border-rose-400/70 px-3 py-1 rounded-xl drop-shadow-lg">
+              NOPE
+            </span>
+          </div>
+        )}
+
+        {/* Bottom info overlay */}
+        <div className="absolute bottom-0 w-full bg-gradient-to-t from-black via-black/85 to-transparent px-5 pt-16 pb-5 flex flex-col gap-3 z-10">
+          {/* Name + compat */}
+          <div className="flex items-end justify-between">
             <h2 className="text-2xl font-bold text-white">{m.username}</h2>
-            <div className="text-sm font-semibold text-green-400">
-              {m.totalCompatibility}% compat
+            <div className={`text-xl font-bold tabular-nums ${compatColor}`}>
+              {compat}%
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 max-h-20 overflow-hidden">
-            {m.details.commonTraits.map((t, i) => (
-              <span
-                key={i}
-                className="px-2 py-1 text-xs bg-blue-600 rounded-full"
-              >
-                {t}
-              </span>
-            ))}
+          {/* Common traits */}
+          {m.details.commonTraits.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 max-h-16 overflow-hidden">
+              {m.details.commonTraits.slice(0, 6).map((t, i) => (
+                <span
+                  key={i}
+                  className="px-2.5 py-0.5 text-xs rounded-full bg-fuchsia-500/20 border border-fuchsia-500/30 text-fuchsia-200"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Mini bars */}
+          <div className="flex gap-3">
+            <MiniBar label="Character" value={m.characterCompatibility} color="bg-sky-500" />
+            <MiniBar label="Desire" value={m.desiredCompatibility} color="bg-fuchsia-500" />
           </div>
 
-          <div className="flex gap-2 mt-1">
-            <MiniBar
-              label="Character"
-              value={m.characterCompatibility}
-              color="bg-blue-500"
-            />
-            <MiniBar
-              label="Desire"
-              value={m.desiredCompatibility}
-              color="bg-purple-500"
-            />
-          </div>
-
+          {/* Why you matched — tap to expand */}
           <button
-            onClick={() => startChat(m.userId)}
-            className="mt-3 w-full bg-green-400 text-black font-bold py-2 rounded-xl hover:bg-green-300 transition"
+            onClick={(e) => { e.stopPropagation(); setShowWhyMatched((v) => !v); }}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition self-start"
           >
-            Start Chat
+            <span className="text-[10px]">{showWhyMatched ? "▲" : "▼"}</span>
+            Why you matched
           </button>
 
-          <div className="text-center text-xs text-gray-400 mt-1">
-            {currentIndex + 1} / {matches.length}
-          </div>
+          {showWhyMatched && (
+            <div className="flex flex-col gap-2.5 text-xs bg-black/50 backdrop-blur rounded-xl p-3 border border-white/10">
+              {m.details.theyHaveWhatIWant.length > 0 && (
+                <div>
+                  <p className="text-slate-400 mb-1.5">They have what you want</p>
+                  <div className="flex flex-wrap gap-1">
+                    {m.details.theyHaveWhatIWant.map((t, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/30 text-sky-200">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {m.details.iHaveWhatTheyWant.length > 0 && (
+                <div>
+                  <p className="text-slate-400 mb-1.5">You have what they want</p>
+                  <div className="flex flex-wrap gap-1">
+                    {m.details.iHaveWhatTheyWant.map((t, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-200">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* CTA */}
+          <button
+            onClick={(e) => { e.stopPropagation(); startChat(m.userId); }}
+            className="mt-1 w-full py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-fuchsia-500 to-sky-500 text-white text-sm font-semibold shadow-lg shadow-fuchsia-900/40 hover:brightness-110 transition-all duration-200"
+          >
+            Start Chatting
+          </button>
+
+          <button
+            onClick={(e) => { e.stopPropagation(); removeMatch(m.userId); }}
+            className="text-xs text-slate-600 hover:text-slate-400 text-center transition"
+          >
+            Skip
+          </button>
         </div>
 
-        {/* HEART ANIMATION */}
+        {/* Chat transition animation */}
         {showAnimation && selectedMatchId === m.userId && (
-          <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50">
-            <div className="text-6xl animate-pulse text-red-500">❤️</div>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-50 backdrop-blur-sm">
+            <div className="relative flex items-center justify-center">
+              <div className="absolute w-32 h-32 rounded-full bg-fuchsia-500/40 animate-ripple-1" />
+              <div className="absolute w-32 h-32 rounded-full bg-sky-500/30 animate-ripple-2" />
+              <div className="animate-fade-up flex flex-col items-center gap-2">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 via-fuchsia-500 to-sky-500 flex items-center justify-center shadow-lg shadow-fuchsia-900/50">
+                  <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                </div>
+                <span className="text-sm font-semibold text-white/90 tracking-wide">Starting chat…</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
+
+      <p className="text-xs text-slate-700">Swipe right to chat · left to skip</p>
     </div>
   );
 }
 
-function MiniBar({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
+function MiniBar({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex-1">
-      <div className="flex justify-between text-[10px] mb-1 text-gray-300">
+      <div className="flex justify-between text-[10px] mb-1 text-slate-400">
         <span>{label}</span>
         <span>{value}%</span>
       </div>
-      <div className="w-full bg-zinc-800 rounded-full h-2">
+      <div className="w-full bg-white/10 rounded-full h-1.5">
         <div
-          className={`${color} h-2 rounded-full`}
+          className={`${color} h-1.5 rounded-full transition-all duration-500`}
           style={{ width: `${value}%` }}
         />
       </div>

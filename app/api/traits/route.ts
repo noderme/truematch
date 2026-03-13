@@ -1,12 +1,10 @@
 import { pool as db } from "../../../lib/db";
-import { execOllamaPrompt, generateEmbedding } from "../../../lib/ollama";
+import { generateWithClaude, generateEmbedding } from "../../../lib/claude";
 
-interface OllamaTraits {
+interface Traits {
   selfTraits: string[];
   desiredTraits: string[];
 }
-
-/* -------------------- HELPERS -------------------- */
 
 function extractJSON(raw: string): any {
   const firstBrace = raw.indexOf("{");
@@ -23,9 +21,8 @@ function safeArray(arr: any): string[] {
     .map((t) => t.toLowerCase().trim());
 }
 
-async function generateTraitsForStory(story: string): Promise<OllamaTraits> {
-  const prompt = `
-You are a dating profile analyzer.
+async function generateTraitsForStory(story: string): Promise<Traits> {
+  const prompt = `You are a dating profile analyzer.
 
 Extract personality and physical traits from the user's story.
 
@@ -43,10 +40,9 @@ Rules:
 - no extra text
 
 Story:
-"""${story}"""
-`;
+"""${story}"""`;
 
-  const raw = await execOllamaPrompt(prompt);
+  const raw = await generateWithClaude(prompt);
 
   try {
     const parsed = extractJSON(raw);
@@ -55,12 +51,10 @@ Story:
       desiredTraits: safeArray(parsed.desiredTraits),
     };
   } catch (err) {
-    console.warn("LLM JSON parse failed:", raw);
+    console.warn("Claude JSON parse failed:", raw);
     return { selfTraits: [], desiredTraits: [] };
   }
 }
-
-/* ---------------- HANDLER (App Router POST) ---------------- */
 
 export async function POST() {
   try {
@@ -88,14 +82,10 @@ export async function POST() {
       const desiredEmbedding = await generateEmbedding(desiredTraits.join(" "));
 
       await db.query(
-        `
-        UPDATE users
-        SET self_traits = $1,
-            desired_traits = $2,
-            self_embedding = $3,
-            desired_embedding = $4
-        WHERE id = $5
-        `,
+        `UPDATE users
+         SET self_traits = $1, desired_traits = $2,
+             self_embedding = $3, desired_embedding = $4
+         WHERE id = $5`,
         [
           JSON.stringify(selfTraits),
           JSON.stringify(desiredTraits),
@@ -108,17 +98,11 @@ export async function POST() {
       processed++;
     }
 
-    return new Response(
-      JSON.stringify({
-        message: `Traits + embeddings generated for ${processed} users`,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    return Response.json({
+      message: `Traits + embeddings generated for ${processed} users`,
+    });
   } catch (err) {
     console.error("❌ Error generating traits:", err);
-    return new Response(
-      JSON.stringify({ error: "Failed to generate traits" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
+    return Response.json({ error: "Failed to generate traits" }, { status: 500 });
   }
 }

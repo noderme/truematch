@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
 
     if (msgError) throw msgError;
 
-    // Step 2: Group messages by matchedUserId
+    // Step 2: Group messages by matchedUserId, keep latest message per chat
     const chatMap = new Map<string, any>();
     messages.forEach((msg) => {
       const matchedUserId =
@@ -31,7 +31,6 @@ export async function GET(req: NextRequest) {
           timestamp: msg.created_at,
         });
       } else {
-        // Update lastMessage if this message is newer
         const existing = chatMap.get(matchedUserId);
         if (new Date(msg.created_at) > new Date(existing.timestamp)) {
           existing.lastMessage = msg.content;
@@ -46,19 +45,32 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ chats: [] });
     }
 
-    // Step 3: Fetch usernames from Postgres
+    // Step 3: Fetch username + first photo for each matched user
     const { rows: users } = await pool.query(
-      `SELECT id, username FROM users WHERE id = ANY($1::int[])`,
+      `SELECT u.id, u.username, p.url AS photo
+       FROM users u
+       LEFT JOIN (
+         SELECT DISTINCT ON (user_id) user_id, url
+         FROM photos
+         ORDER BY user_id, position ASC
+       ) p ON p.user_id = u.id
+       WHERE u.id = ANY($1::int[])`,
       [matchedUserIds],
     );
 
-    const userMap = new Map(users.map((u: any) => [u.id, u.username]));
+    const userMap = new Map(
+      users.map((u: any) => [u.id, { username: u.username, photo: u.photo ?? null }]),
+    );
 
     // Step 4: Construct final chats array
-    const chats = Array.from(chatMap.values()).map((chat) => ({
-      ...chat,
-      name: userMap.get(Number(chat.matchedUserId)) || "Unknown",
-    }));
+    const chats = Array.from(chatMap.values()).map((chat) => {
+      const info = userMap.get(Number(chat.matchedUserId));
+      return {
+        ...chat,
+        name: info?.username || "Unknown",
+        photo: info?.photo || null,
+      };
+    });
 
     return NextResponse.json({ chats });
   } catch (err: any) {
